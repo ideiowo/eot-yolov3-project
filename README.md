@@ -1,6 +1,6 @@
 ### **README.md**
 
-```markdown
+
 # YOLOv3 微調專案
 
 本專案展示如何在自訂資料集上進行 YOLOv3 模型的微調，並使用已訓練的模型進行即時物件檢測。
@@ -110,4 +110,4 @@
 ## 授權
 
 本專案基於 [YOLOv3](https://github.com/ultralytics/yolov3) 並遵循 AGPL-3.0 授權協議。
-```
+
