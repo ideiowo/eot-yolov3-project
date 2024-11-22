@@ -1,0 +1,14 @@
+# 忽略虛擬環境
+venv/
+
+# 忽略 VSCode 的設置文件夾
+.vscode/
+
+# 忽略 Python 編譯的臨時文件
+__pycache__/
+*.pyc
+*.pyo
+
+# 忽略臨時文件
+*.log
+*.tmp
