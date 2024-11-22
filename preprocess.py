@@ -1,7 +1,7 @@
 import os
-from PIL import Image
 import shutil
 import random
+from PIL import Image
 
 # 原始資料集位置
 base_dir = r"."
