@@ -19,7 +19,7 @@
 ├── yolov3/                 # YOLOv3 模型與工具檔案
 ├── new_images/             # 自訂資料集圖片
 ├── new_labels/             # 自訂資料集標籤
-├── base_datase/            # 被貼的訓練影像
+├── base_datase/            # 被貼的訓練圖像
 ├── star/                   # 星形貼片資料集
 ├── gan/
 │   ├── generator.py        # 生成器
