@@ -22,6 +22,10 @@
 ├── gan/
 │   ├── generator.py        # 生成器
 │   └── discriminator.py    # 判別器
+├── utils/
+│   ├── eot.py              # EOT 相關函數
+│   ├── datasets.py         # 自訂資料集類
+│   └── attack.py           # 攻擊相關函數
 ├── preprocess.py           # 資料預處理腳本
 ├── test.py                 # 即時物件檢測腳本
 ├── best.pt                 # 微調後的 YOLOv3 模型權重
