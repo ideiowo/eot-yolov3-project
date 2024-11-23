@@ -19,14 +19,17 @@
 ├── yolov3/                 # YOLOv3 模型與工具檔案
 ├── new_images/             # 自訂資料集圖片
 ├── new_labels/             # 自訂資料集標籤
+├── base_datase/            # 被貼的訓練影像
+├── star/                   # 星形貼片資料集
 ├── gan/
 │   ├── generator.py        # 生成器
 │   └── discriminator.py    # 判別器
-├── utils/
+├── util/
 │   ├── eot.py              # EOT 相關函數
 │   ├── datasets.py         # 自訂資料集類
 │   └── attack.py           # 攻擊相關函數
 ├── preprocess.py           # YOLOv3資料預處理腳本
+├── train_gan.py           
 ├── test.py                 # 即時物件檢測腳本
 ├── best.pt                 # 微調後的 YOLOv3 模型權重
 └── README.md               # 專案說明文件
