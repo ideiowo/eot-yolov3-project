@@ -19,7 +19,9 @@
 ├── yolov3/                 # YOLOv3 模型與工具檔案
 ├── new_images/             # 自訂資料集圖片
 ├── new_labels/             # 自訂資料集標籤
-├── venv/                   # Python 虛擬環境（Git 忽略此目錄）
+├── gan/
+│   ├── generator.py        # 生成器
+│   └── discriminator.py    # 判別器
 ├── preprocess.py           # 資料預處理腳本
 ├── test.py                 # 即時物件檢測腳本
 ├── best.pt                 # 微調後的 YOLOv3 模型權重
