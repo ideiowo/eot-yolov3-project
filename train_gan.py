@@ -224,13 +224,12 @@ with open(epoch_info_path, "w") as log_file:
         epoch_loss_G /= num_batches
         epoch_attack_loss /= num_batches
 
-
-
         # 儲存 epoch 訓練信息到檔案
         log_file.write(
             f"Epoch {epoch + 1}/{num_epochs} - Loss_D: {epoch_loss_D:.4f}, "
             f"Loss_G: {epoch_loss_G:.4f}, Attack_Loss: {epoch_attack_loss:.4f}\n"
         )
+        log_file.flush()  # 強制刷新緩衝區
 
         # Epoch 結束後保存生成貼片和基底圖像
         if True:#(epoch + 1) % save_interval == 1:
