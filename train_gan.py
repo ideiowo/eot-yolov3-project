@@ -84,8 +84,8 @@ generator = Generator(latent_dim).to(device)
 discriminator = Discriminator().to(device)
 
 checkpoint_epoch = 220  # 您想要加載的 epoch 數
-generator_path = f"models/generator_epoch_{checkpoint_epoch}.pth"
-discriminator_path = f"models/discriminator_epoch_{checkpoint_epoch}.pth"
+generator_path = f"gan_models/generator_epoch_{checkpoint_epoch}.pth"
+discriminator_path = f"gan_models/discriminator_epoch_{checkpoint_epoch}.pth"
     
 
 if os.path.exists(generator_path) and os.path.exists(discriminator_path):
@@ -264,7 +264,8 @@ with open(epoch_info_path, "w") as log_file:
                                 logits.unsqueeze(0), 
                                 torch.tensor([target_index], device=device)
                             )
-            attack_loss /= len(base_images)
+            attack_loss /= (len(base_images) * (batch_size // N))
+
             loss_G = gan_loss + alpha * attack_loss
             loss_G.backward()  # 反向傳播
             optimizer_G.step()  # 更新生成器參數
@@ -272,7 +273,7 @@ with open(epoch_info_path, "w") as log_file:
             # 累積 batch 損失
             epoch_loss_D += loss_D.item()
             epoch_loss_G += loss_G.item()
-            epoch_attack_loss += attack_loss.item()
+            epoch_attack_loss += attack_loss
             num_batches += 1
             
             # 打印 epoch 訓練信息
