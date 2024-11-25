@@ -17,6 +17,8 @@ if yolo3_path not in sys.path:
 from yolov3.models.common import DetectMultiBackend
 from yolov3.utils.general import non_max_suppression
 
+torch.autograd.set_detect_anomaly(True)
+
 # 自定義 letterbox 函數
 def letterbox(im, new_shape=(416, 416), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True):
     shape = im.shape[:2]
@@ -46,7 +48,7 @@ latent_dim = 100  # 生成器的輸入隨機噪聲維度
 batch_size = 18  # 批次大小，需為 N 的倍數
 N = 6  # 每組貼片數量
 img_size = (720, 1280)  # 基底圖像大小
-patch_size = (60, 60)  # 貼片大小
+patch_size = (120, 120)  # 貼片大小
 alpha = 0.5  # 攻擊損失的權重
 num_epochs = 1000  # 總訓練輪數
 save_interval = 5  # 每隔幾輪保存模型
@@ -59,12 +61,18 @@ patch_dataset_path = './star/star'
 # 創建保存資料夾
 os.makedirs("final_generated_patches", exist_ok=True)
 os.makedirs("final_transformed_images", exist_ok=True)
-os.makedirs("models", exist_ok=True)
+os.makedirs("attack_models", exist_ok=True)
 
 
 # 加載 YOLO 模型
 weights = 'best.pt'
 yolo_model = DetectMultiBackend(weights, device=device, data=None)
+
+# 設置YOLOv3模型為評估模式並禁用梯度追蹤
+yolo_model.eval()
+for param in yolo_model.parameters():
+    param.requires_grad = False
+
 target_class = 'car'  # 攻擊的目標類別
 names = yolo_model.names
 if target_class not in names.values():
@@ -75,9 +83,24 @@ target_index = next(key for key, value in names.items() if value == target_class
 generator = Generator(latent_dim).to(device)
 discriminator = Discriminator().to(device)
 
+checkpoint_epoch = 220  # 您想要加載的 epoch 數
+generator_path = f"models/generator_epoch_{checkpoint_epoch}.pth"
+discriminator_path = f"models/discriminator_epoch_{checkpoint_epoch}.pth"
+    
+
+if os.path.exists(generator_path) and os.path.exists(discriminator_path):
+    try:
+        generator.load_state_dict(torch.load(generator_path, map_location=device))
+        discriminator.load_state_dict(torch.load(discriminator_path, map_location=device))
+        print(f"已成功加載第 {checkpoint_epoch} 個 epoch 的生成器和判別器參數。")
+    except Exception as e:
+           print(f"加載模型參數時出錯: {e}")
+else:
+    print(f"模型檔案未找到：{generator_path} 或 {discriminator_path}。將從頭開始訓練。")
+
 # 優化器
 optimizer_G = optim.Adam(generator.parameters(), lr=learning_rate, betas=(0.5, 0.999))
-optimizer_D = optim.Adam(discriminator.parameters(), lr=learning_rate/100, betas=(0.5, 0.999))
+optimizer_D = optim.Adam(discriminator.parameters(), lr=learning_rate/5, betas=(0.5, 0.999))
 
 # 損失函數
 adversarial_loss = nn.BCELoss()  # GAN 的傳統損失函數
@@ -148,6 +171,25 @@ for det in pred:
 # 打印目標框，確認結果
 print("Target boxes:", target_boxes)
 
+# 初始化變換參數（在 epoch 循環外生成一次，並在所有 epoch 中重用）
+epoch_transformation_params = []
+for _ in range(batch_size // N):
+    base_image_sample = base_images[0]
+    patches_sample = [
+        np.zeros((patch_size[1], patch_size[0], 3), dtype="uint8")  # 假設貼片大小為 patch_size
+        for _ in range(N)
+    ]
+    _, params = eot(
+        base_image_sample, 
+        patches_sample, 
+        patch_size=patch_size,
+        gamma_range=(0.8, 1.2),
+        max_rotation=30,
+        max_perspective_shift=0.2,
+        target_boxes=target_boxes  # 使用目標方框
+    )
+    epoch_transformation_params.extend(params)  # 使用 extend 而不是 append
+
 with open(epoch_info_path, "w") as log_file:
     for epoch in range(num_epochs):
         print(f"Epoch {epoch + 1}/{num_epochs}")
@@ -159,25 +201,6 @@ with open(epoch_info_path, "w") as log_file:
         epoch_attack_loss = 0.0
         num_batches = 0
         
-
-        epoch_transformation_params = []
-        for _ in range(batch_size // N):
-            base_image_sample = base_images[0]
-            patches_sample = [
-                np.zeros((patch_size[1], patch_size[0], 3), dtype="uint8")  # 假設貼片大小為 patch_size
-                for _ in range(N)
-            ]
-            _, params = eot(
-                base_image_sample, 
-                patches_sample, 
-                patch_size=patch_size,
-                gamma_range=(0.8, 1.2),
-                max_rotation=30,
-                max_perspective_shift=0.2,
-                target_boxes=target_boxes  # 使用目標方框
-            )
-            epoch_transformation_params.extend(params)  # 使用 extend 而不是 append
-
         for batch_idx in epoch_progress:
             # 分批次載入真實貼片
             real_patch_batch = real_patches[batch_idx:batch_idx + batch_size]
@@ -192,8 +215,9 @@ with open(epoch_info_path, "w") as log_file:
             optimizer_D.zero_grad()
             real_labels = torch.full((len(real_patch_batch), 1), real_label_smooth, device=device)  # 真實標籤為 0.9
             real_loss = adversarial_loss(discriminator(real_patch_batch), real_labels)
+            # 修改此處，使用 .detach() 將生成的假貼片與生成器的計算圖分離
             fake_labels = torch.zeros((batch_size, 1), device=device)  # 生成標籤為 0    
-            fake_loss = adversarial_loss(discriminator(generated_patches), fake_labels)
+            fake_loss = adversarial_loss(discriminator(generated_patches.detach()), fake_labels)
             loss_D = 0.5 * (real_loss + fake_loss)
             loss_D.backward()  # 反向傳播
             optimizer_D.step()  # 更新判別器參數
@@ -210,7 +234,7 @@ with open(epoch_info_path, "w") as log_file:
             for group_idx in range(batch_size // N):
                 group_patches = generated_patches[group_idx]
                 group_patches_numpy = [
-                    (patch.cpu().permute(1, 2, 0).numpy() * 255).astype("uint8")
+                    (patch.cpu().detach().permute(1, 2, 0).numpy() * 255).astype("uint8")
                     for patch in group_patches
                 ]
                 for base_idx, base_image in enumerate(base_images):
@@ -270,20 +294,20 @@ with open(epoch_info_path, "w") as log_file:
         log_file.flush()  # 強制刷新緩衝區
 
         # Epoch 結束後保存生成貼片和基底圖像
-        if True:#(epoch + 1) % save_interval == 1:
+        if (epoch + 1) % save_interval == 1:
             # 生成並保存貼片
             z = torch.randn(N, latent_dim, 1, 1, device=device)
             final_generated_patches = generator(z)  # 直接生成貼片
             for i, patch in enumerate(final_generated_patches):
                 patch_save_path = os.path.join("final_generated_patches", f"epoch_{epoch + 1}_patch_{i + 1}.png")
-                patch = (patch.cpu().permute(1, 2, 0).numpy() * 255).astype("uint8")  # 保留原始範圍
+                patch = (patch.cpu().detach().permute(1, 2, 0).numpy() * 255).astype("uint8")  # 保留原始範圍
                 cv2.imwrite(patch_save_path, patch)
 
             # 貼片應用到基底圖像並保存
             for base_idx, base_image in enumerate(base_images[:3]):
                 transformed_image, transformation_params = eot(
                     base_image, 
-                    [(patch.cpu().permute(1, 2, 0).numpy() * 255).astype("uint8") for patch in final_generated_patches],
+                    [(patch.cpu().detach().permute(1, 2, 0).numpy() * 255).astype("uint8") for patch in final_generated_patches],
                     patch_size=patch_size,
                     gamma_range=(0.8, 1.2),
                     max_rotation=30,
@@ -298,5 +322,5 @@ with open(epoch_info_path, "w") as log_file:
                 print(f"Saved transformed image: {transformed_save_path}")
 
             # 保存模型權重
-            torch.save(generator.state_dict(), os.path.join("models", f"generator_epoch_{epoch + 1}.pth"))
-            torch.save(discriminator.state_dict(), os.path.join("models", f"discriminator_epoch_{epoch + 1}.pth"))
+            torch.save(generator.state_dict(), os.path.join("attack_models", f"generator_epoch_{epoch + 1}.pth"))
+            torch.save(discriminator.state_dict(), os.path.join("attack_models", f"discriminator_epoch_{epoch + 1}.pth"))

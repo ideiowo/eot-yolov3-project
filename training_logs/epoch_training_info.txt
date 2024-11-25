@@ -1,0 +1,11 @@
+Epoch 1/1000 - Loss_D: 0.3373, Loss_G: 3.2584, Attack_Loss: 5.3493
+Epoch 2/1000 - Loss_D: 0.3425, Loss_G: 3.3341, Attack_Loss: 5.4069
+Epoch 3/1000 - Loss_D: 0.3065, Loss_G: 3.2588, Attack_Loss: 5.3828
+Epoch 4/1000 - Loss_D: 0.3219, Loss_G: 3.2695, Attack_Loss: 5.3968
+Epoch 5/1000 - Loss_D: 0.2967, Loss_G: 3.2492, Attack_Loss: 5.4045
+Epoch 6/1000 - Loss_D: 0.2971, Loss_G: 3.2055, Attack_Loss: 5.4205
+Epoch 7/1000 - Loss_D: 0.2976, Loss_G: 3.1895, Attack_Loss: 5.3846
+Epoch 8/1000 - Loss_D: 0.2789, Loss_G: 3.1933, Attack_Loss: 5.4179
+Epoch 9/1000 - Loss_D: 0.2940, Loss_G: 3.2274, Attack_Loss: 5.3850
+Epoch 10/1000 - Loss_D: 0.2845, Loss_G: 3.2496, Attack_Loss: 5.4159
+Epoch 11/1000 - Loss_D: 0.2895, Loss_G: 3.1763, Attack_Loss: 5.3808

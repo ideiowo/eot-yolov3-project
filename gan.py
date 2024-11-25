@@ -12,58 +12,52 @@ class Generator(nn.Module):
             # 第一層：從潛在向量生成 4x4 的特徵圖
             nn.ConvTranspose2d(latent_dim, 256, kernel_size=4, stride=1, padding=0),
             nn.BatchNorm2d(256),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True),  # 替換為 LeakyReLU
+            nn.LeakyReLU(negative_slope=0.2, inplace=True),
 
             # 第二層：上採樣到 11x11
             nn.ConvTranspose2d(256, 128, kernel_size=4, stride=3, padding=1),
             nn.BatchNorm2d(128),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True),  # 替換為 LeakyReLU
+            nn.LeakyReLU(negative_slope=0.2, inplace=True),
 
             # 第三層：保持尺寸，增加深度
             nn.ConvTranspose2d(128, 128, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(128),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True),  # 替換為 LeakyReLU
+            nn.LeakyReLU(negative_slope=0.2, inplace=True),
 
             # 第四層：上採樣到 32x32
             nn.ConvTranspose2d(128, 64, kernel_size=4, stride=3, padding=1),
             nn.BatchNorm2d(64),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True),  # 替換為 LeakyReLU
+            nn.LeakyReLU(negative_slope=0.2, inplace=True),
 
             # 第五層：保持尺寸，增加深度
             nn.ConvTranspose2d(64, 64, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(64),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True),  # 替換為 LeakyReLU
+            nn.LeakyReLU(negative_slope=0.2, inplace=True),
 
             # 第六層：上採樣到 64x64
             nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(32),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True),  # 替換為 LeakyReLU
+            nn.LeakyReLU(negative_slope=0.2, inplace=True),
 
             # 第七層：上採樣到 200x200
             nn.ConvTranspose2d(32, 16, kernel_size=11, stride=3, padding=1),
             nn.BatchNorm2d(16),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True),  # 替換為 LeakyReLU
+            nn.LeakyReLU(negative_slope=0.2, inplace=True),
 
             # 第八層：保持尺寸，增加深度
             nn.ConvTranspose2d(16, 16, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(16),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True),  # 替換為 LeakyReLU
+            nn.LeakyReLU(negative_slope=0.2, inplace=True),
 
-            # 最終輸出層：生成 1 通道的灰度圖像
-            nn.ConvTranspose2d(16, 1, kernel_size=5, stride=1, padding=1),
+            # 最終輸出層：生成 3 通道的灰度圖像
+            nn.ConvTranspose2d(16, 3, kernel_size=5, stride=1, padding=1),
             nn.Sigmoid()  # 確保輸出範圍在 [0, 1]
         )
 
     def forward(self, z):
         x = self.model(z)
-        binary_output = (x > 0.5).float()  # 二值化處理
-        rgb_output = binary_output.repeat(1, 3, 1, 1)  # 將單通道數據複製為三通道
-        return rgb_output
+        return x  # 直接返回經過 Sigmoid 的結果
 
-
-
-
-# 判別器 (Discriminator)
 class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
@@ -102,6 +96,23 @@ if __name__ == "__main__":
     # 測試生成器
     latent_dim = 100
     generator = Generator(latent_dim)
+    # 測試判別器
+    discriminator = Discriminator()
+
+    checkpoint_epoch = 220  # 您想要加載的 epoch 數
+    generator_path = f"models/generator_epoch_{checkpoint_epoch}.pth"
+    discriminator_path = f"models/discriminator_epoch_{checkpoint_epoch}.pth"
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    if os.path.exists(generator_path) and os.path.exists(discriminator_path):
+        try:
+            generator.load_state_dict(torch.load(generator_path, map_location=device))
+            discriminator.load_state_dict(torch.load(discriminator_path, map_location=device))
+            print(f"已成功加載第 {checkpoint_epoch} 個 epoch 的生成器和判別器參數。")
+        except Exception as e:
+            print(f"加載模型參數時出錯: {e}")
+    else:
+        print(f"模型檔案未找到：{generator_path} 或 {discriminator_path}。將從頭開始訓練。")
     z = torch.randn(1, latent_dim, 1, 1)  # 隨機噪聲輸入
     generated_img = generator(z)
 
@@ -111,12 +122,11 @@ if __name__ == "__main__":
 
     # 保存生成的圖片
     generated_img_np = (generated_img[0].cpu().detach().permute(1, 2, 0).numpy() * 255).astype(np.uint8)  # [C, H, W] -> [H, W, C] 並轉換為 uint8
-    save_path = os.path.join("", "generated_image.png")
+    save_path = os.path.join("", "generated_image2.png")
     cv2.imwrite(save_path, generated_img_np)
 
     print(f"Generated image saved to: {save_path}")
 
-    # 測試判別器
-    discriminator = Discriminator()
+    
     score = discriminator(generated_img)
     print(f"Discriminator output shape: {score.shape}")  # 應為 [1]

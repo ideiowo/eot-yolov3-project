@@ -78,7 +78,7 @@ def eot(base_image, patches, patch_size=(60, 60), gamma_range=(0.8, 1.2), max_ro
 
         # 5. 隨機擺放
         # 去除白色背景
-        threshold = 200
+        threshold = 100
         mask = (patch < threshold).astype(np.uint8)
 
         # 平滑遮罩邊界
@@ -106,8 +106,8 @@ if __name__ == "__main__":
     # 加載多個貼片影像
     #patch1 = cv2.imread("./star/star/1.png")
     #patch2 = cv2.imread("./star/star/100.png")
-    patch1 = cv2.imread("./final_generated_patches/epoch_2_patch_2.png")
-    patch2 = cv2.imread("./final_generated_patches/epoch_2_patch_2.png")
+    patch1 = cv2.imread("./generated_image2.png")
+    patch2 = cv2.imread("./generated_image.png")
     patches = [patch1, patch2]
 
     # 執行 EOT，解包返回的結果
