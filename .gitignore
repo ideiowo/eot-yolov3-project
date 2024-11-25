@@ -9,6 +9,14 @@ __pycache__/
 *.pyc
 *.pyo
 
+# 忽略 結果文件
+final_generated_patches/
+final_transformed_images/
+models/
+
 # 忽略臨時文件
 *.log
 *.tmp
+
+# 忽略影片
+*.mp4
