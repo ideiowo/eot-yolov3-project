@@ -20,3 +20,5 @@ models/
 
 # 忽略影片
 *.mp4
+*.png
+*.jpg

@@ -71,7 +71,7 @@ def eot(base_image, patches, patch_size=(60, 60), gamma_range=(0.8, 1.2), max_ro
 
         # 5. 隨機擺放
         # 去除白色背景
-        threshold = 100
+        threshold = 200
         mask = (patch < threshold).astype(np.uint8)
 
         # 平滑遮罩邊界
