@@ -98,6 +98,7 @@ def eot(base_image, patches, patch_size=(60, 60), gamma_range=(0.8, 1.2), max_ro
     return transformed_image, transformation_params
 
 
+
 if __name__ == "__main__":
     # 加載基底圖像
     base_image = cv2.imread("./base_dataset/33.jpg")

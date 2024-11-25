@@ -114,9 +114,9 @@ epoch_transformation_params = None
 # 選擇列表中的第一張圖像進行處理
 base_image = base_images[0]  # 獲取單個圖像
 
-# 調整基底圖像尺寸以符合 YOLO 的要求
-base_image = letterbox(base_image)[0]  # 使用自定義 letterbox 函數進行調整
-base_image_tensor = base_image[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, HWC to CHW
+# 調整基底圖像尺寸以符合 YOLO 的要求，並獲取縮放比例和填充
+base_image_resized, (scale, _), (dw, dh) = letterbox(base_image, new_shape=(416, 416))
+base_image_tensor = base_image_resized[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, HWC to CHW
 base_image_tensor = (
     torch.from_numpy(base_image_tensor.copy()).float() / 255.0  # 標準化
 ).unsqueeze(0).to(device)  # 添加批次維度並移動到裝置
@@ -125,17 +125,28 @@ base_image_tensor = (
 pred = yolo_model(base_image_tensor)
 pred = non_max_suppression(pred)
 
-# 提取目標框 (x_min, y_min, x_max, y_max)
+# 提取目標框 (x_min, y_min, x_max, y_max) 並轉換回原始圖像尺寸
 target_boxes = []
 for det in pred:
     if len(det):
         for *xyxy, conf, cls in det:
-            if int(cls) == target_index:  # 僅選擇目標類別的框
+            if int(cls) == 2:  # 僅選擇目標類別的框(標誌)
                 x_min, y_min, x_max, y_max = map(int, xyxy)
-                target_boxes.append((x_min, y_min, x_max, y_max))
+                # 轉換回原始圖像尺寸
+                x_min_original = int((x_min - dw) / scale)
+                y_min_original = int((y_min - dh) / scale)
+                x_max_original = int((x_max - dw) / scale)
+                y_max_original = int((y_max - dh) / scale)
+
+                # 確保不超出原始圖像邊界
+                x_min_original = max(0, x_min_original)
+                y_min_original = max(0, y_min_original)
+                x_max_original = min(base_image.shape[1], x_max_original)
+                y_max_original = min(base_image.shape[0], y_max_original)
+
+                target_boxes.append((x_min_original, y_min_original, x_max_original, y_max_original))
 # 打印目標框，確認結果
 print("Target boxes:", target_boxes)
-
 
 with open(epoch_info_path, "w") as log_file:
     for epoch in range(num_epochs):
@@ -148,24 +159,24 @@ with open(epoch_info_path, "w") as log_file:
         epoch_attack_loss = 0.0
         num_batches = 0
         
-        # 在每個 epoch 開始時生成一次變換參數，並保持一致
-        if epoch_transformation_params is None:
-            epoch_transformation_params = []
-            for _ in range(batch_size // N):
-                base_image_sample = base_images[0]
-                patches_sample = [
-                    np.zeros((patch_size[1], patch_size[0], 3), dtype="uint8")  # 假設貼片大小為 patch_size
-                    for _ in range(N)
-                ]
-                _, params = eot(
-                    base_image_sample, 
-                    patches_sample, 
-                    patch_size=patch_size,
-                    gamma_range=(0.8, 1.2),
-                    max_rotation=30,
-                    max_perspective_shift=0.2
-                )
-                epoch_transformation_params.append(params)
+
+        epoch_transformation_params = []
+        for _ in range(batch_size // N):
+            base_image_sample = base_images[0]
+            patches_sample = [
+                np.zeros((patch_size[1], patch_size[0], 3), dtype="uint8")  # 假設貼片大小為 patch_size
+                for _ in range(N)
+            ]
+            _, params = eot(
+                base_image_sample, 
+                patches_sample, 
+                patch_size=patch_size,
+                gamma_range=(0.8, 1.2),
+                max_rotation=30,
+                max_perspective_shift=0.2,
+                target_boxes=target_boxes  # 使用目標方框
+            )
+            epoch_transformation_params.extend(params)  # 使用 extend 而不是 append
 
         for batch_idx in epoch_progress:
             # 分批次載入真實貼片
@@ -210,7 +221,7 @@ with open(epoch_info_path, "w") as log_file:
                         gamma_range=(0.8, 1.2),
                         max_rotation=30,
                         max_perspective_shift=0.2,
-                        transformation_params=None,  # 可選
+                        transformation_params=epoch_transformation_params,
                         target_boxes=target_boxes  # 傳入目標方框
                     )
                     transformed_image = letterbox(transformed_image)[0]
@@ -270,25 +281,17 @@ with open(epoch_info_path, "w") as log_file:
 
             # 貼片應用到基底圖像並保存
             for base_idx, base_image in enumerate(base_images[:3]):
-                # 第一次處理基底圖像時生成變換參數
-                if base_idx == 0:
-                    transformed_image, transformation_params = eot(
-                        base_image, 
-                        [(patch.cpu().permute(1, 2, 0).numpy() * 255).astype("uint8") for patch in final_generated_patches],
-                        patch_size=patch_size,
-                        gamma_range=(0.8, 1.2),
-                        max_rotation=30,
-                        max_perspective_shift=0.2
-                    )
-                else:
-                    # 使用固定的變換參數
-                    transformed_image, _ = eot(
-                        base_image,
-                        [(patch.cpu().permute(1, 2, 0).numpy() * 255).astype("uint8") for patch in final_generated_patches],
-                        patch_size=patch_size,
-                        transformation_params=transformation_params
-                    )
-
+                transformed_image, transformation_params = eot(
+                    base_image, 
+                    [(patch.cpu().permute(1, 2, 0).numpy() * 255).astype("uint8") for patch in final_generated_patches],
+                    patch_size=patch_size,
+                    gamma_range=(0.8, 1.2),
+                    max_rotation=30,
+                    max_perspective_shift=0.2,
+                    transformation_params=epoch_transformation_params,
+                    target_boxes=target_boxes  # 傳入目標方框
+                )
+                
                 # 保存生成的圖像
                 transformed_save_path = os.path.join("final_transformed_images", f"epoch_{epoch + 1}_base_{base_idx + 1}.png")
                 cv2.imwrite(transformed_save_path, transformed_image)
