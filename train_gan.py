@@ -111,6 +111,32 @@ os.makedirs("training_logs", exist_ok=True)
 # 初始化變換參數
 epoch_transformation_params = None
 
+# 選擇列表中的第一張圖像進行處理
+base_image = base_images[0]  # 獲取單個圖像
+
+# 調整基底圖像尺寸以符合 YOLO 的要求
+base_image = letterbox(base_image)[0]  # 使用自定義 letterbox 函數進行調整
+base_image_tensor = base_image[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, HWC to CHW
+base_image_tensor = (
+    torch.from_numpy(base_image_tensor.copy()).float() / 255.0  # 標準化
+).unsqueeze(0).to(device)  # 添加批次維度並移動到裝置
+
+# 通過 YOLO 獲取預測目標框
+pred = yolo_model(base_image_tensor)
+pred = non_max_suppression(pred)
+
+# 提取目標框 (x_min, y_min, x_max, y_max)
+target_boxes = []
+for det in pred:
+    if len(det):
+        for *xyxy, conf, cls in det:
+            if int(cls) == target_index:  # 僅選擇目標類別的框
+                x_min, y_min, x_max, y_max = map(int, xyxy)
+                target_boxes.append((x_min, y_min, x_max, y_max))
+# 打印目標框，確認結果
+print("Target boxes:", target_boxes)
+
+
 with open(epoch_info_path, "w") as log_file:
     for epoch in range(num_epochs):
         print(f"Epoch {epoch + 1}/{num_epochs}")
@@ -181,10 +207,11 @@ with open(epoch_info_path, "w") as log_file:
                         base_image,
                         group_patches_numpy,
                         patch_size=patch_size,
-                        transformation_params=epoch_transformation_params[group_idx],
                         gamma_range=(0.8, 1.2),
                         max_rotation=30,
-                        max_perspective_shift=0.2
+                        max_perspective_shift=0.2,
+                        transformation_params=None,  # 可選
+                        target_boxes=target_boxes  # 傳入目標方框
                     )
                     transformed_image = letterbox(transformed_image)[0]
                     transformed_image_tensor = transformed_image[:, :, ::-1].transpose(2, 0, 1)

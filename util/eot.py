@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 import random
 
-def eot(base_image, patches, patch_size=(60, 60), gamma_range=(0.8, 1.2), max_rotation=30, max_perspective_shift=0.2, transformation_params=None):
+def eot(base_image, patches, patch_size=(60, 60), gamma_range=(0.8, 1.2), max_rotation=30, max_perspective_shift=0.2, transformation_params=None, target_boxes=None):
     """
     執行期望轉換技術 (EOT)，對多個貼片進行隨機位置擺放及變換，並將其應用於基底圖像。
 
@@ -14,6 +14,7 @@ def eot(base_image, patches, patch_size=(60, 60), gamma_range=(0.8, 1.2), max_ro
     - max_rotation (int): 最大旋轉角度（以度為單位）。
     - max_perspective_shift (float): 透視變換的最大偏移比例（相對於貼片寬高的比例）。
     - transformation_params (list): 傳入固定的變換參數 (選填)。
+    - target_boxes (list): 目標方框範圍 [(x_min, y_min, x_max, y_max), ...]。
 
     返回:
     - transformed_image (np.ndarray): 含變換貼片的基底圖像。
@@ -50,14 +51,20 @@ def eot(base_image, patches, patch_size=(60, 60), gamma_range=(0.8, 1.2), max_ro
                 [random.randint(-shift_x, shift_x), height + random.randint(-shift_y, shift_y)],
                 [width + random.randint(-shift_x, shift_x), height + random.randint(-shift_y, shift_y)]
             ])
-            x = random.randint(0, W - patch_size[0])
-            y = random.randint(0, H - patch_size[1])
+            
+            # 在目標方框內隨機生成貼片位置
+            if target_boxes:
+                x_min, y_min, x_max, y_max = random.choice(target_boxes)
+                x = random.randint(x_min, max(x_min, x_max - patch_size[0]))
+                y = random.randint(y_min, max(y_min, y_max - patch_size[1]))
+            else:
+                x = random.randint(0, W - patch_size[0])
+                y = random.randint(0, H - patch_size[1])
 
             # 添加到變換參數列表
             transformation_params.append((gamma, angle, dst_points, x, y))
 
         # 2. 伽瑪校正
-        gamma = random.uniform(0.9, 1.1)  # 縮小伽瑪校正範圍
         patch = np.clip(np.power(patch / 255.0, gamma) * 255.0, 0, 255).astype(np.uint8)
 
         # 3. 旋轉貼片
@@ -75,23 +82,21 @@ def eot(base_image, patches, patch_size=(60, 60), gamma_range=(0.8, 1.2), max_ro
         mask = (patch < threshold).astype(np.uint8)
 
         # 平滑遮罩邊界
-        blurred_mask = cv2.GaussianBlur(mask.astype(np.float32), (3, 3), 0)  # 減小核大小
-        blurred_mask = np.clip(blurred_mask, 0, 1)  # 過濾範圍限制在 [0, 1]
+        blurred_mask = cv2.GaussianBlur(mask.astype(np.float32), (5, 5), 0)
+        blurred_mask = np.clip(blurred_mask, 0, 1)
 
         # 如果 mask 是單通道，擴展為三通道
         if mask.shape[-1] != 3:
             blurred_mask = np.stack([blurred_mask] * 3, axis=-1)
 
-        # 複製基底圖像對應區域
-        region = transformed_image[y:y + patch_size[1], x:x + patch_size[0]]
-
         # 遮罩混合貼片與基底
         transformed_image[y:y + patch_size[1], x:x + patch_size[0]] = (
-            region * (1 - blurred_mask) +
+            transformed_image[y:y + patch_size[1], x:x + patch_size[0]] * (1 - blurred_mask) +
             patch * blurred_mask
         )
 
     return transformed_image, transformation_params
+
 
 if __name__ == "__main__":
     # 加載基底圖像
