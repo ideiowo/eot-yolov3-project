@@ -8,7 +8,7 @@ from tqdm import tqdm
 import numpy as np
 from gan import Generator, Discriminator
 from util.eot import eot
-
+import json
 
 # 確保 yolov3 的路徑在搜索路徑中
 yolo3_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'yolov3'))
@@ -62,7 +62,7 @@ patch_dataset_path = './star/star'
 os.makedirs("final_generated_patches", exist_ok=True)
 os.makedirs("final_transformed_images", exist_ok=True)
 os.makedirs("attack_models", exist_ok=True)
-
+os.makedirs("saved_patches", exist_ok=True)  # 如果資料夾不存在，則創建
 
 # 加載 YOLO 模型
 weights = 'best.pt'
@@ -171,24 +171,28 @@ for det in pred:
 # 打印目標框，確認結果
 print("Target boxes:", target_boxes)
 
-# 初始化變換參數（在 epoch 循環外生成一次，並在所有 epoch 中重用）
+# 設定序列化參數檔案的路徑
+params_path = "eot_best_results/params_2_loss1.6648.json"
+
+# 讀取序列化參數
+with open(params_path, "r") as f:
+    saved_data = json.load(f)
+
+# 提取參數並將其擴展到 epoch_transformation_params
+saved_transformation_params = saved_data["params"]  # 假設 JSON 檔案中有 "params" 欄位
+
+# 初始化變換參數
 epoch_transformation_params = []
-for _ in range(batch_size // N):
-    base_image_sample = base_images[0]
-    patches_sample = [
-        np.zeros((patch_size[1], patch_size[0], 3), dtype="uint8")  # 假設貼片大小為 patch_size
-        for _ in range(N)
-    ]
-    _, params = eot(
-        base_image_sample, 
-        patches_sample, 
-        patch_size=patch_size,
-        gamma_range=(0.8, 1.2),
-        max_rotation=30,
-        max_perspective_shift=0.2,
-        target_boxes=target_boxes  # 使用目標方框
-    )
-    epoch_transformation_params.extend(params)  # 使用 extend 而不是 append
+epoch_transformation_params.extend([
+    (
+        param["gamma"],
+        param["angle"],
+        np.array(param["dst_points"]),  # 從列表還原為 NumPy 陣列
+        param["x"],
+        param["y"]
+    ) for param in saved_transformation_params
+])
+
 
 with open(epoch_info_path, "w") as log_file:
     for epoch in range(num_epochs):
@@ -231,6 +235,8 @@ with open(epoch_info_path, "w") as log_file:
 
             # 計算攻擊損失
             attack_loss = 0.0
+            valid_samples = 0  # 計算有效樣本數
+
             for group_idx in range(batch_size // N):
                 group_patches = generated_patches[group_idx]
                 group_patches_numpy = [
@@ -248,23 +254,49 @@ with open(epoch_info_path, "w") as log_file:
                         transformation_params=epoch_transformation_params,
                         target_boxes=target_boxes  # 傳入目標方框
                     )
-                    transformed_image = letterbox(transformed_image)[0]
-                    transformed_image_tensor = transformed_image[:, :, ::-1].transpose(2, 0, 1)
+                    letterbox_transformed_image = letterbox(transformed_image)[0]
+                    transformed_image_tensor = letterbox_transformed_image[:, :, ::-1].transpose(2, 0, 1)
                     transformed_image_tensor = (
                         torch.from_numpy(transformed_image_tensor.copy()).float() / 255.0
                     ).unsqueeze(0).to(device)
                     pred = yolo_model(transformed_image_tensor)
                     pred = non_max_suppression(pred)
-                    for det in pred:
-                        if len(det):
-                            logits = torch.zeros(len(names), device=device)
-                            for *xyxy, conf, cls in det:
-                                logits[int(cls)] = conf
-                            attack_loss += cross_entropy_loss(
-                                logits.unsqueeze(0), 
-                                torch.tensor([target_index], device=device)
+                    # 只處理有效樣本
+                    # 初始化該批次的累計損失
+                    group_loss = 0.0
+                    
+                    # 檢查是否有任何有效檢測
+                    has_detections = any(det.shape[0] > 0 for det in pred)
+
+                    if has_detections:
+                        for det in pred:
+                            if len(det):
+                                logits = torch.zeros(len(names), device=device)
+                                for *xyxy, conf, cls in det:
+                                    logits[int(cls)] = conf
+                                    # 累加該 det 的損失
+                                    group_loss += cross_entropy_loss(
+                                        logits.unsqueeze(0), 
+                                        torch.tensor([target_index], device=device)
+                                    ).item()
+                                valid_samples += 1  # 有效樣本計數
+                                attack_loss += group_loss  # 將該批次損失加到總攻擊損失中
+
+                                # 保存有效對抗樣本
+                        if 0 < group_loss < 1.5:  # 使用累計損失作為儲存條件
+                            patch_save_path = os.path.join(
+                                "saved_patches", f"epoch_{epoch + 1}_group_{group_idx}_patch_{base_idx + 1}.png"
                             )
-            attack_loss /= (len(base_images) * (batch_size // N))
+                            cv2.imwrite(patch_save_path, transformed_image)
+                            print(f"Saved patch: {patch_save_path}")
+                    else:
+                        print(f"No valid detections for base image {base_idx} in group {group_idx}.")
+                        
+            # 平均攻擊損失
+            if valid_samples > 0:
+                attack_loss /= valid_samples  # 只考慮有效樣本的平均損失
+            else:
+                print("No valid samples found in this epoch.")
 
             loss_G = gan_loss + alpha * attack_loss
             loss_G.backward()  # 反向傳播
@@ -275,12 +307,11 @@ with open(epoch_info_path, "w") as log_file:
             epoch_loss_G += loss_G.item()
             epoch_attack_loss += attack_loss
             num_batches += 1
-            
             # 打印 epoch 訓練信息
             print(
                 f"[Epoch {epoch + 1}/{num_epochs}] Loss_D: {loss_D:.4f}, "
                 f"Loss_G: {loss_G:.4f}, Attack Loss: {attack_loss:.4f}"
-            )
+            )            
 
         # 計算 epoch 平均損失
         epoch_loss_D /= num_batches

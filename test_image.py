@@ -37,7 +37,7 @@ def letterbox(im, new_shape=(416, 416), color=(114, 114, 114), auto=True, scaleF
 
 # 配置參數
 weights = 'best.pt'  # 訓練後的權重檔案
-base_dataset = 'base_dataset'  # 圖片資料夾路徑
+base_dataset = 'saved_patches'  # 圖片資料夾路徑
 device = torch.device('cuda')  # 使用 GPU（改為 'cuda:0' 或 'cpu'）
 conf_threshold = 0.25
 iou_threshold = 0.45
@@ -50,7 +50,7 @@ names = model.names
 print(f"Model loaded with stride {stride}, and {len(names)} classes: {names}")
 
 # 處理 base_dataset 資料夾
-image_files = sorted([f for f in os.listdir(base_dataset) if f.endswith('.jpg')])
+image_files = sorted([f for f in os.listdir(base_dataset) if f.endswith('.png')])
 print(f"Found {len(image_files)} images in {base_dataset}")
 
 # 設置目標類別
@@ -78,7 +78,7 @@ for image_file in image_files:
     pred = non_max_suppression(pred, conf_threshold, iou_threshold)
 
     # 計算攻擊損失
-    L_f = 0
+    L_f = torch.tensor(0.0, device=device)
     print(f"Results for {image_file}:")
     for det in pred:
         if len(det):

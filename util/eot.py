@@ -36,6 +36,7 @@ def eot(base_image, patches, patch_size=(60, 60), gamma_range=(0.8, 1.2), max_ro
             gamma, angle, dst_points, x, y = transformation_params[idx]
             # 初始化 src_points，因為 dst_points 已固定
             width, height = patch_size
+            dst_points = np.array(dst_points, dtype=np.float32)
             src_points = np.float32([[0, 0], [width, 0], [0, height], [width, height]])
         else:
             # 生成新的隨機參數
@@ -106,15 +107,15 @@ if __name__ == "__main__":
     # 加載多個貼片影像
     #patch1 = cv2.imread("./star/star/1.png")
     #patch2 = cv2.imread("./star/star/100.png")
-    patch1 = cv2.imread("./generated_image2.png")
-    patch2 = cv2.imread("./generated_image.png")
+    patch1 = cv2.imread("final_generated_patches/epoch_16_patch_1.png")
+    patch2 = cv2.imread("final_generated_patches/epoch_6_patch_1.png")
     patches = [patch1, patch2]
 
     # 執行 EOT，解包返回的結果
     result_image, _ = eot(
         base_image,
         patches,
-        patch_size=(100, 100),
+        patch_size=(130, 130),
         gamma_range=(0.8, 1.2),
         max_rotation=30,
         max_perspective_shift=0.2
