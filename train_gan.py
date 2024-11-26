@@ -15,7 +15,7 @@ yolo3_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'yolov3'))
 if yolo3_path not in sys.path:
     sys.path.append(yolo3_path)
 from yolov3.models.common import DetectMultiBackend
-from yolov3.utils.general import non_max_suppression
+from optimize_parametsers import personal_non_max_suppression
 
 torch.autograd.set_detect_anomaly(True)
 
@@ -146,7 +146,7 @@ base_image_tensor = (
 
 # 通過 YOLO 獲取預測目標框
 pred = yolo_model(base_image_tensor)
-pred = non_max_suppression(pred)
+pred = personal_non_max_suppression(pred)
 
 # 提取目標框 (x_min, y_min, x_max, y_max) 並轉換回原始圖像尺寸
 target_boxes = []
@@ -172,7 +172,7 @@ for det in pred:
 print("Target boxes:", target_boxes)
 
 # 設定序列化參數檔案的路徑
-params_path = "eot_best_results/params_2_loss1.6648.json"
+params_path = "eot_best_results/params_1_loss2.1772.json"
 
 # 讀取序列化參數
 with open(params_path, "r") as f:
@@ -204,7 +204,7 @@ with open(epoch_info_path, "w") as log_file:
         epoch_loss_G = 0.0
         epoch_attack_loss = 0.0
         num_batches = 0
-        
+
         for batch_idx in epoch_progress:
             # 分批次載入真實貼片
             real_patch_batch = real_patches[batch_idx:batch_idx + batch_size]
@@ -233,10 +233,9 @@ with open(epoch_info_path, "w") as log_file:
 
             generated_patches = generated_patches.view(batch_size // N, N, 3, 200, 200)  # 每組 N 個貼片，貼片大小應為 200x200
 
-            # 計算攻擊損失
-            attack_loss = 0.0
-            valid_samples = 0  # 計算有效樣本數
 
+            # 計算攻擊損失
+            attack_loss = 0.0  
             for group_idx in range(batch_size // N):
                 group_patches = generated_patches[group_idx]
                 group_patches_numpy = [
@@ -260,43 +259,36 @@ with open(epoch_info_path, "w") as log_file:
                         torch.from_numpy(transformed_image_tensor.copy()).float() / 255.0
                     ).unsqueeze(0).to(device)
                     pred = yolo_model(transformed_image_tensor)
-                    pred = non_max_suppression(pred)
-                    # 只處理有效樣本
-                    # 初始化該批次的累計損失
-                    group_loss = 0.0
-                    
-                    # 檢查是否有任何有效檢測
-                    has_detections = any(det.shape[0] > 0 for det in pred)
+                    pred = personal_non_max_suppression(pred)
 
-                    if has_detections:
-                        for det in pred:
-                            if len(det):
-                                logits = torch.zeros(len(names), device=device)
-                                for *xyxy, conf, cls in det:
-                                    logits[int(cls)] = conf
-                                    # 累加該 det 的損失
-                                    group_loss += cross_entropy_loss(
-                                        logits.unsqueeze(0), 
-                                        torch.tensor([target_index], device=device)
-                                    ).item()
-                                valid_samples += 1  # 有效樣本計數
-                                attack_loss += group_loss  # 將該批次損失加到總攻擊損失中
-
+                    for detections in pred:
+                        if len(det):
+                            for det in detections:
+                                # 提取目標類別的概率
+                                class_probs = det[6:6+5]  # 假設有 5 個類別
+                                p_t = class_probs[target_index].item()
+                                    
+                                # 防止 log(0) 的情況
+                                p_t = max(p_t, 1e-6)
+                                    
+                                # 計算交叉熵損失
+                                loss = -torch.log(torch.tensor(p_t))
+                                    
+                                # 累加損失
+                                attack_loss += loss.item()
+                                    
+                                #print(f": {cls.item()}, 類別概率: {class_probs.tolist()}, p_t: {p_t}, 單框損失: {loss.item():.4f}")
                                 # 保存有效對抗樣本
-                        if 0 < group_loss < 1.5:  # 使用累計損失作為儲存條件
-                            patch_save_path = os.path.join(
-                                "saved_patches", f"epoch_{epoch + 1}_group_{group_idx}_patch_{base_idx + 1}.png"
-                            )
-                            cv2.imwrite(patch_save_path, transformed_image)
-                            print(f"Saved patch: {patch_save_path}")
-                    else:
-                        print(f"No valid detections for base image {base_idx} in group {group_idx}.")
-                        
-            # 平均攻擊損失
-            if valid_samples > 0:
-                attack_loss /= valid_samples  # 只考慮有效樣本的平均損失
-            else:
-                print("No valid samples found in this epoch.")
+                                
+                            if int(cls) == target_index:  # 使用累計損失作為儲存條件
+                                patch_save_path = os.path.join(
+                                    "saved_patches", f"epoch_{epoch + 1}_group_{group_idx}_patch_{base_idx + 1}.png"
+                                )
+                                cv2.imwrite(patch_save_path, transformed_image)
+                                print(f"Saved patch: {patch_save_path}")
+                      
+
+            attack_loss /= (len(base_images) * (batch_size // N))
 
             loss_G = gan_loss + alpha * attack_loss
             loss_G.backward()  # 反向傳播
