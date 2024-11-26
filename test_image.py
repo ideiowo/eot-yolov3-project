@@ -104,6 +104,6 @@ for image_name in os.listdir(transformed_images_dir):
                     
                 print(f"類別: {cls}, 類別概率: {class_probs.tolist()}")
         else:
-            print("沒有物件")
+            print("沒有物件:",nms_pred)
 
     print(f"圖片 {image_name} 的總攻擊損失: {attack_loss:.4f}\n")

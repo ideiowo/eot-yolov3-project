@@ -33,7 +33,8 @@ def personal_non_max_suppression(
     Non-Maximum Suppression (NMS) on inference results to reject overlapping detections.
 
     Returns:
-         list of detections, on (n, 6 + nc) tensor per image [xyxy, conf, cls, class_probs]
+         list of detections, on (n, 6 + nc + nm) tensor per image [xyxy, conf, cls, class_probs]
+         If no detections, includes class probabilities.
     """
     # Checks
     assert 0 <= conf_thres <= 1, f"Invalid Confidence threshold {conf_thres}, valid values are between 0.0 and 1.0"
@@ -59,7 +60,7 @@ def personal_non_max_suppression(
 
     t = time.time()
     mi = 5 + nc  # mask start index
-    output = [torch.zeros((0, 6 + nc + nm), device=prediction.device)] * bs  # 調整輸出張量的維度
+    output = [torch.zeros((0, 6 + nc + nm), device=prediction.device)] * bs  # Initialize output tensors
 
     for xi, x in enumerate(prediction):  # image index, image inference
         # Apply constraints
@@ -76,6 +77,28 @@ def personal_non_max_suppression(
 
         # If none remain process next image
         if not x.shape[0]:
+            # Compute class probabilities from the raw predictions
+            raw_x = prediction[xi]
+            raw_conf = raw_x[:, 4]
+            raw_cls = raw_x[:, 5:mi]
+            # Option 1: Take the maximum class probability across all predictions
+            class_probs, _ = raw_cls.max(0)
+            # Option 2: Take the average class probability
+            # class_probs = raw_cls.mean(0)
+
+            # Normalize class probabilities
+            class_probs = class_probs / class_probs.sum()
+
+            # Create a dummy detection
+            # Format: [x1, y1, x2, y2, conf, cls, class_probs..., masks...]
+            # Set box coordinates and conf to zero, cls to -1 to indicate no detection
+            dummy_box = torch.zeros(4, device=device)
+            dummy_conf = torch.zeros(1, device=device)
+            dummy_cls = -1 * torch.ones(1, device=device)
+            dummy_mask = torch.zeros(nm, device=device) if nm > 0 else torch.tensor([], device=device)
+            dummy_detection = torch.cat([dummy_box, dummy_conf, dummy_cls, class_probs, dummy_mask], dim=0).unsqueeze(0)
+
+            output[xi] = dummy_detection
             continue
 
         # Compute conf
@@ -99,14 +122,35 @@ def personal_non_max_suppression(
         if classes is not None:
             x = x[(x[:, 5:6] == torch.tensor(classes, device=x.device)).any(1)]
 
-        # Apply finite constraint (可選，根據需要啟用)
+        # Apply finite constraint (optional, enable if needed)
         # if not torch.isfinite(x).all():
         #     x = x[torch.isfinite(x).all(1)]
 
         # Check shape
         n = x.shape[0]  # number of boxes
-        if not n:  # no boxes
+        if not n:  # no boxes after class filtering
+            # Compute class probabilities from the raw predictions
+            raw_x = prediction[xi]
+            raw_conf = raw_x[:, 4]
+            raw_cls = raw_x[:, 5:mi]
+            # Option 1: Take the maximum class probability across all predictions
+            class_probs, _ = raw_cls.max(0)
+            # Option 2: Take the average class probability
+            # class_probs = raw_cls.mean(0)
+
+            # Normalize class probabilities
+            class_probs = class_probs / class_probs.sum()
+
+            # Create a dummy detection
+            dummy_box = torch.zeros(4, device=device)
+            dummy_conf = torch.zeros(1, device=device)
+            dummy_cls = -1 * torch.ones(1, device=device)
+            dummy_mask = torch.zeros(nm, device=device) if nm > 0 else torch.tensor([], device=device)
+            dummy_detection = torch.cat([dummy_box, dummy_conf, dummy_cls, class_probs, dummy_mask], dim=0).unsqueeze(0)
+
+            output[xi] = dummy_detection
             continue
+
         x = x[x[:, 4].argsort(descending=True)[:max_nms]]  # sort by confidence and remove excess boxes
 
         # Batched NMS
@@ -132,7 +176,6 @@ def personal_non_max_suppression(
             break  # time limit exceeded
 
     return output
-
 
 # 將參數轉換為可序列化格式的函數
 def make_serializable(params):
