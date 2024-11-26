@@ -100,7 +100,7 @@ else:
 
 # 優化器
 optimizer_G = optim.Adam(generator.parameters(), lr=learning_rate, betas=(0.5, 0.999))
-optimizer_D = optim.Adam(discriminator.parameters(), lr=learning_rate/5, betas=(0.5, 0.999))
+optimizer_D = optim.Adam(discriminator.parameters(), lr=learning_rate/10, betas=(0.5, 0.999))
 
 # 損失函數
 adversarial_loss = nn.BCELoss()  # GAN 的傳統損失函數
@@ -224,7 +224,7 @@ with open(epoch_info_path, "w") as log_file:
             fake_loss = adversarial_loss(discriminator(generated_patches.detach()), fake_labels)
             loss_D = 0.5 * (real_loss + fake_loss)
             loss_D.backward()  # 反向傳播
-            optimizer_D.step()  # 更新判別器參數
+            #optimizer_D.step()  # 更新判別器參數
 
             # 訓練生成器
             optimizer_G.zero_grad()

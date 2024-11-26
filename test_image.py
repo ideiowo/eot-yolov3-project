@@ -9,8 +9,8 @@ if yolo3_path not in sys.path:
     sys.path.append(yolo3_path)
 
 from yolov3.models.common import DetectMultiBackend
-from yolov3.utils.general import non_max_suppression
-from yolov3.utils.torch_utils import select_device
+from optimize_parametsers import personal_non_max_suppression
+
 
 # 自定義 letterbox 函數
 def letterbox(im, new_shape=(416, 416), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True):
@@ -53,51 +53,57 @@ print(f"Model loaded with stride {stride}, and {len(names)} classes: {names}")
 image_files = sorted([f for f in os.listdir(base_dataset) if f.endswith('.png')])
 print(f"Found {len(image_files)} images in {base_dataset}")
 
-# 設置目標類別
-target_class = 'car'
+# 定義目標類別並獲取其索引
+target_class = 'car'  # 攻擊的目標類別
 if target_class not in names.values():
     raise ValueError(f"Target class '{target_class}' not found in model classes: {list(names.values())}")
-target_index = next(key for key, value in names.items() if value == target_class)  # 目標類別索引
+target_index = next(key for key, value in names.items() if value == target_class)
 
-# 開始偵測
-for image_file in image_files:
-    image_path = os.path.join(base_dataset, image_file)
-    frame = cv2.imread(image_path)
-    if frame is None:
-        print(f"Error: 無法讀取圖片 {image_file}")
-        continue
+# 設定處理的圖片資料夾
+transformed_images_dir = "./final_transformed_images"
+
+# 確保儲存目錄存在
+os.makedirs("saved_patches", exist_ok=True)
+
+# 遍歷資料夾中的每張圖片
+for image_name in os.listdir(transformed_images_dir):
+    image_path = os.path.join(transformed_images_dir, image_name)
+    transformed_image = cv2.imread(image_path)
 
     # 圖像預處理
-    img = letterbox(frame, img_size, auto=True)[0]
+    img = letterbox(transformed_image, img_size, auto=True)[0]
     img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB and HWC to CHW
     img = torch.from_numpy(img.copy()).float() / 255.0
     img = img.unsqueeze(0).to(device)
 
     # 模型推理
     pred = model(img)
-    pred = non_max_suppression(pred, conf_threshold, iou_threshold)
+         
+    nms_pred = personal_non_max_suppression(pred, conf_threshold, iou_threshold)
 
-    # 計算攻擊損失
-    L_f = torch.tensor(0.0, device=device)
-    print(f"Results for {image_file}:")
-    for det in pred:
-        if len(det):
-            for *xyxy, conf, cls in det:
-                bbox = [int(coord) for coord in xyxy]  # 檢測框座標
-                label = names[int(cls)]  # 預測類別名稱
+    attack_loss = 0.0  # 初始化攻擊損失
+    save_flag = False  # 初始化保存標誌
 
-                # 使用 cls 作為類別索引，創建 logits
-                logits = torch.zeros(len(names), device=device)  # 初始化 logits
-                logits[int(cls)] = conf  # 將置信度對應到預測類別
+    for detections in nms_pred:
+        if detections is not None and len(detections):
+            for det in detections:
+                # 提取目標類別的概率
+                class_probs = det[6:6+5]  # 假設有 5 個類別
+                p_t = class_probs[target_index].item()
 
+                cls = int(det[5].item())
+                # 防止 log(0) 的情況
+                p_t = max(p_t, 1e-6)
+                    
                 # 計算交叉熵損失
-                L_f += F.cross_entropy(logits.unsqueeze(0), torch.tensor([target_index], device=device))
+                loss = -torch.log(torch.tensor(p_t))
+                    
+                # 累加損失
+                attack_loss += loss.item()
 
-                # 計算類別概率分佈
-                probabilities = torch.softmax(logits, dim=0).tolist()
-                print(f"  - BBox: {bbox}, Probabilities: {probabilities}, Class: {label}")
+                    
+                print(f"類別: {cls}, 類別概率: {class_probs.tolist()}")
+        else:
+            print("沒有物件")
 
-
-    print(f"  - Total Loss (L_f): {L_f.item():.4f}")
-
-print("所有圖片處理完成。")
+    print(f"圖片 {image_name} 的總攻擊損失: {attack_loss:.4f}\n")
