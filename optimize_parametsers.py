@@ -330,9 +330,9 @@ import json
 
 if __name__ == "__main__":
     # 加載基底圖像
-    base_image = cv2.imread("./base_dataset/33.jpg")  # 基底圖像
+    base_image = cv2.imread("./dataset/5.jpg")  # 基底圖像
     patch_folder = "./final_generated_patches"
-    patches = [cv2.imread(os.path.join(patch_folder, f"epoch_21_patch_{i}.png")) for i in range(1, 7)]
+    patches = [cv2.imread(os.path.join(patch_folder, f"epoch_21_patch_{i}.png")) for i in range(1, 5)]
 
     device = torch.device('cuda')
     model = DetectMultiBackend('best.pt', device=device, data=None)
@@ -341,7 +341,7 @@ if __name__ == "__main__":
     conf_threshold = 0.25
     iou_threshold = 0.45
     img_size = 416
-    target_index = 3
+    target_index = 0
 
     num_iterations = 5000  # 執行 EOT 的次數
     top_k = 5  # 篩選的最佳結果數量
@@ -354,7 +354,7 @@ if __name__ == "__main__":
         result_image, transformation_params = eot(
             base_image,
             patches,
-            patch_size=(140, 140),
+            patch_size=(220, 220),
             gamma_range=(0.8, 1.2),
             max_rotation=30,
             max_perspective_shift=0.2,
@@ -395,7 +395,7 @@ if __name__ == "__main__":
                     
                     print(f"類別: {cls.item()}, 類別概率: {class_probs.tolist()}, p_t: {p_t}, 單框損失: {loss.item():.4f}")
                 
-                print(f"圖片 {idx} 的總攻擊損失: {attack_loss:.4f}\n")
+                print(f"圖片 {i} 的總攻擊損失: {attack_loss:.4f}\n")
                 # 儲存損失、參數、圖像到 results
                 results.append((attack_loss, transformation_params, result_image.copy()))
 
@@ -420,6 +420,6 @@ if __name__ == "__main__":
                 json.dump({"loss": loss, "params": serializable_params}, f, indent=4)
 
             # 儲存結果圖像
-            image_path = os.path.join(output_dir, f"result_image_{idx + 1}.png")
+            image_path = os.path.join(output_dir, f"result_image_{idx + 1}.jpg")
             cv2.imwrite(image_path, image)
             print(f"Saved Result {idx + 1}: Loss = {loss:.4f}, Params saved to {params_path}, Image saved to {image_path}")

@@ -250,7 +250,7 @@ def main():
             gen_imgs = generator(z)
             output = discriminator(gen_imgs)
             loss_G = adversarial_loss(output, valid)  # 希望生成器欺騙判別器
-
+            print(loss_G)
             loss_G.backward()
             optimizer_G.step()
 

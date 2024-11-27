@@ -14,8 +14,8 @@ if not cap.isOpened():
 
 # 取得影片資訊
 fps = cap.get(cv2.CAP_PROP_FPS)  # 幀率
-start_time = 36.  # 起始時間 (秒)
-end_time = 37.5    # 結束時間 (秒)
+start_time = 36.7  # 起始時間 (秒)
+end_time = 37    # 結束時間 (秒)
 start_frame = int(start_time * fps)  # 起始幀
 end_frame = int(end_time * fps)      # 結束幀
 

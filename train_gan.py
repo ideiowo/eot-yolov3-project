@@ -46,16 +46,16 @@ def letterbox(im, new_shape=(416, 416), color=(114, 114, 114), auto=True, scaleF
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 latent_dim = 100  # 生成器的輸入隨機噪聲維度
 batch_size = 18  # 批次大小，需為 N 的倍數
-N = 6  # 每組貼片數量
+N = 4  # 每組貼片數量
 img_size = (720, 1280)  # 基底圖像大小
-patch_size = (120, 120)  # 貼片大小
+patch_size = (220, 220)  # 貼片大小
 alpha = 0.5  # 攻擊損失的權重
-num_epochs = 1000  # 總訓練輪數
+num_epochs = 500  # 總訓練輪數
 save_interval = 5  # 每隔幾輪保存模型
 learning_rate = 0.0002
 
 # 資料集路徑
-base_dataset_path = './base_dataset'
+base_dataset_path = './dataset'
 patch_dataset_path = './star/star'
 
 # 創建保存資料夾
@@ -73,7 +73,7 @@ yolo_model.eval()
 for param in yolo_model.parameters():
     param.requires_grad = False
 
-target_class = 'car'  # 攻擊的目標類別
+target_class = 'person'  # 攻擊的目標類別
 names = yolo_model.names
 if target_class not in names.values():
     raise ValueError(f"Target class '{target_class}' not found in model classes: {list(names.values())}")
