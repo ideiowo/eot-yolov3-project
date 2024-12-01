@@ -15,7 +15,7 @@ yolo3_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'yolov3'))
 if yolo3_path not in sys.path:
     sys.path.append(yolo3_path)
 from yolov3.models.common import DetectMultiBackend
-from optimize_parametsers import personal_non_max_suppression
+from optimize_parametsers import personal_non_max_suppression, non_max_suppression
 
 torch.autograd.set_detect_anomaly(True)
 
@@ -45,12 +45,12 @@ def letterbox(im, new_shape=(416, 416), color=(114, 114, 114), auto=True, scaleF
 # 配置參數
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 latent_dim = 100  # 生成器的輸入隨機噪聲維度
-batch_size = 18  # 批次大小，需為 N 的倍數
+batch_size = 72  # 批次大小，需為 N 的倍數
 N = 4  # 每組貼片數量
 img_size = (720, 1280)  # 基底圖像大小
 patch_size = (220, 220)  # 貼片大小
 alpha = 0.5  # 攻擊損失的權重
-num_epochs = 500  # 總訓練輪數
+num_epochs = 100  # 總訓練輪數
 save_interval = 5  # 每隔幾輪保存模型
 learning_rate = 0.0002
 
@@ -146,7 +146,7 @@ base_image_tensor = (
 
 # 通過 YOLO 獲取預測目標框
 pred = yolo_model(base_image_tensor)
-pred = personal_non_max_suppression(pred)
+pred = non_max_suppression(pred)
 
 # 提取目標框 (x_min, y_min, x_max, y_max) 並轉換回原始圖像尺寸
 target_boxes = []
@@ -172,7 +172,7 @@ for det in pred:
 print("Target boxes:", target_boxes)
 
 # 設定序列化參數檔案的路徑
-params_path = "eot_best_results/params_1_loss2.1772.json"
+params_path = "eot_best_results/params_1_loss0.3163.json"
 
 # 讀取序列化參數
 with open(params_path, "r") as f:
@@ -233,6 +233,10 @@ with open(epoch_info_path, "w") as log_file:
 
             generated_patches = generated_patches.view(batch_size // N, N, 3, 200, 200)  # 每組 N 個貼片，貼片大小應為 200x200
 
+            # 初始化變數
+            min_group_loss = float("inf")
+            best_patches = None
+            best_transformed_images = None
 
             # 計算攻擊損失
             attack_loss = 0.0  
@@ -242,6 +246,9 @@ with open(epoch_info_path, "w") as log_file:
                     (patch.cpu().detach().permute(1, 2, 0).numpy() * 255).astype("uint8")
                     for patch in group_patches
                 ]
+                group_loss = 0.0
+                current_transformed_images = []  # 保存當前組的所有合成圖像
+
                 for base_idx, base_image in enumerate(base_images):
                     transformed_image, _ = eot(
                         base_image,
@@ -253,6 +260,9 @@ with open(epoch_info_path, "w") as log_file:
                         transformation_params=epoch_transformation_params,
                         target_boxes=target_boxes  # 傳入目標方框
                     )
+                    # 保存當前基底影像的合成結果
+                    current_transformed_images.append(transformed_image)
+
                     letterbox_transformed_image = letterbox(transformed_image)[0]
                     transformed_image_tensor = letterbox_transformed_image[:, :, ::-1].transpose(2, 0, 1)
                     transformed_image_tensor = (
@@ -275,18 +285,14 @@ with open(epoch_info_path, "w") as log_file:
                                 loss = -torch.log(torch.tensor(p_t))
                                     
                                 # 累加損失
-                                attack_loss += loss.item()
+                                group_loss += loss.item() / len(det)
+                                attack_loss += group_loss
                                     
-                                #print(f": {cls.item()}, 類別概率: {class_probs.tolist()}, p_t: {p_t}, 單框損失: {loss.item():.4f}")
-                                # 保存有效對抗樣本
-                                
-                            if int(cls) == target_index:  # 使用累計損失作為儲存條件
-                                patch_save_path = os.path.join(
-                                    "saved_patches", f"epoch_{epoch + 1}_group_{group_idx}_patch_{base_idx + 1}.png"
-                                )
-                                cv2.imwrite(patch_save_path, transformed_image)
-                                print(f"Saved patch: {patch_save_path}")
-                      
+                # 更新最低損失
+                if group_loss < min_group_loss:
+                    min_group_loss = group_loss
+                    best_patches = group_patches.detach().cpu()  # 保存貼片
+                    best_transformed_images = current_transformed_images  # 保存所有合成圖像  
 
             attack_loss /= (len(base_images) * (batch_size // N))
 
@@ -317,34 +323,26 @@ with open(epoch_info_path, "w") as log_file:
         )
         log_file.flush()  # 強制刷新緩衝區
 
-        # Epoch 結束後保存生成貼片和基底圖像
-        if (epoch + 1) % save_interval == 1:
-            # 生成並保存貼片
-            z = torch.randn(N, latent_dim, 1, 1, device=device)
-            final_generated_patches = generator(z)  # 直接生成貼片
-            for i, patch in enumerate(final_generated_patches):
-                patch_save_path = os.path.join("final_generated_patches", f"epoch_{epoch + 1}_patch_{i + 1}.png")
-                patch = (patch.cpu().detach().permute(1, 2, 0).numpy() * 255).astype("uint8")  # 保留原始範圍
-                cv2.imwrite(patch_save_path, patch)
+        if best_patches is not None and best_transformed_images is not None:
+            # 創建保存目錄
+            os.makedirs("final_generated_patches", exist_ok=True)
+            os.makedirs("final_transformed_images", exist_ok=True)
 
-            # 貼片應用到基底圖像並保存
-            for base_idx, base_image in enumerate(base_images[:3]):
-                transformed_image, transformation_params = eot(
-                    base_image, 
-                    [(patch.cpu().detach().permute(1, 2, 0).numpy() * 255).astype("uint8") for patch in final_generated_patches],
-                    patch_size=patch_size,
-                    gamma_range=(0.8, 1.2),
-                    max_rotation=30,
-                    max_perspective_shift=0.2,
-                    transformation_params=epoch_transformation_params,
-                    target_boxes=target_boxes  # 傳入目標方框
-                )
-                
-                # 保存生成的圖像
+            # 保存最佳貼片
+            for i, patch in enumerate(best_patches):
+                patch_save_path = os.path.join("final_generated_patches", f"epoch_{epoch + 1}_patch_{i + 1}.png")
+                patch_image = (patch.permute(1, 2, 0).numpy() * 255).astype("uint8")
+                cv2.imwrite(patch_save_path, patch_image)
+                print(f"Saved best patch: {patch_save_path}")
+
+            # 保存最佳合成圖像
+            for base_idx, transformed_image in enumerate(best_transformed_images):
                 transformed_save_path = os.path.join("final_transformed_images", f"epoch_{epoch + 1}_base_{base_idx + 1}.png")
                 cv2.imwrite(transformed_save_path, transformed_image)
-                print(f"Saved transformed image: {transformed_save_path}")
+                print(f"Saved best transformed image: {transformed_save_path}")
 
             # 保存模型權重
             torch.save(generator.state_dict(), os.path.join("attack_models", f"generator_epoch_{epoch + 1}.pth"))
             torch.save(discriminator.state_dict(), os.path.join("attack_models", f"discriminator_epoch_{epoch + 1}.pth"))
+            print(f"Saved transformed image and Patches and models")
+            

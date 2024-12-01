@@ -13,7 +13,7 @@ if yolo3_path not in sys.path:
     sys.path.append(yolo3_path)
 
 from yolov3.models.common import DetectMultiBackend
-from yolov3.utils.general import xywh2xyxy, box_iou
+from yolov3.utils.general import xywh2xyxy, box_iou, non_max_suppression
 from yolov3.utils.torch_utils import select_device
 import torchvision
 import time
@@ -330,9 +330,9 @@ import json
 
 if __name__ == "__main__":
     # 加載基底圖像
-    base_image = cv2.imread("./dataset/5.jpg")  # 基底圖像
+    base_image = cv2.imread("./dataset/2.jpg")  # 基底圖像
     patch_folder = "./final_generated_patches"
-    patches = [cv2.imread(os.path.join(patch_folder, f"epoch_21_patch_{i}.png")) for i in range(1, 5)]
+    patches = [cv2.imread(os.path.join(patch_folder, f"epoch_21_patch_{i}.png")) for i in range(1, 4)]
 
     device = torch.device('cuda')
     model = DetectMultiBackend('best.pt', device=device, data=None)
@@ -349,6 +349,43 @@ if __name__ == "__main__":
 
     print(f"已加載 {len(patches)} 個貼片。")
 
+    # 調整基底圖像尺寸以符合 YOLO 的要求，並獲取縮放比例和填充
+    base_image_resized, (scale, _), (dw, dh) = letterbox(base_image, new_shape=(416, 416))
+    base_image_tensor = base_image_resized[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, HWC to CHW
+    base_image_tensor = (
+        torch.from_numpy(base_image_tensor.copy()).float() / 255.0  # 標準化
+    ).unsqueeze(0).to(device)  # 添加批次維度並移動到裝置
+
+    # 通過 YOLO 獲取預測目標框
+    pred = model(base_image_tensor)
+    pred = non_max_suppression(pred)
+
+    # 提取目標框 (x_min, y_min, x_max, y_max) 並轉換回原始圖像尺寸
+    target_boxes = []
+    for det in pred:
+        if len(det):
+            for *xyxy, conf, cls in det:
+                if int(cls) == 2:  # 僅選擇目標類別的框(標誌)
+                    x_min, y_min, x_max, y_max = map(int, xyxy)
+                    # 轉換回原始圖像尺寸
+                    x_min_original = int((x_min - dw) / scale)
+                    y_min_original = int((y_min - dh) / scale)
+                    x_max_original = int((x_max - dw) / scale)
+                    y_max_original = int((y_max - dh) / scale)
+
+                    # 確保不超出原始圖像邊界
+                    x_min_original = max(0, x_min_original)
+                    y_min_original = max(0, y_min_original)
+                    x_max_original = min(base_image.shape[1], x_max_original)
+                    y_max_original = min(base_image.shape[0], y_max_original)
+
+                    target_boxes.append((x_min_original, y_min_original, x_max_original, y_max_original))
+    # 打印目標框，確認結果
+    print("Target boxes:", target_boxes)
+
+    # 初始化類別統計資訊的字典
+    class_stats = {}
+
     for i in range(num_iterations):
         # 執行 EOT
         result_image, transformation_params = eot(
@@ -358,7 +395,7 @@ if __name__ == "__main__":
             gamma_range=(0.8, 1.2),
             max_rotation=30,
             max_perspective_shift=0.2,
-            target_boxes=[(83, 436, 575, 1200)]
+            target_boxes=target_boxes
         )
 
         # 圖像預處理
@@ -369,7 +406,6 @@ if __name__ == "__main__":
 
         # 模型推理
         pred = model(img)
-             
         nms_pred = personal_non_max_suppression(pred, conf_threshold, iou_threshold)
         
         for idx, detections in enumerate(nms_pred):
@@ -378,7 +414,7 @@ if __name__ == "__main__":
                 for det in detections:
                     xyxy = det[:4]  # 框的座標
                     conf = det[4]   # 置信度
-                    cls = det[5]    # 類別編號
+                    cls = int(det[5])  # 類別編號 (確保為整數)
                     class_probs = det[6:6+5]  # 5 個類別的概率 (假設有 5 個類別)
                     
                     # 提取目標類別的概率
@@ -393,11 +429,23 @@ if __name__ == "__main__":
                     # 累加損失
                     attack_loss += loss.item()
                     
-                    print(f"類別: {cls.item()}, 類別概率: {class_probs.tolist()}, p_t: {p_t}, 單框損失: {loss.item():.4f}")
+                    # 更新類別統計資訊
+                    if cls not in class_stats:
+                        class_stats[cls] = [0, 0.0]  # 初始化為 [出現次數, 總損失]
+                    class_stats[cls][0] += 1  # 增加出現次數
+                    class_stats[cls][1] += loss.item()  # 增加損失總和
+                    
+                    print(f"類別: {cls}, 類別概率: {class_probs.tolist()}, p_t: {p_t}")
                 
                 print(f"圖片 {i} 的總攻擊損失: {attack_loss:.4f}\n")
                 # 儲存損失、參數、圖像到 results
                 results.append((attack_loss, transformation_params, result_image.copy()))
+
+    # 在程式執行結束後，打印類別統計資訊
+    print("\n=== 類別統計數據 ===")
+    for cls, (count, total_loss) in class_stats.items():
+        avg_loss = total_loss / count if count > 0 else 0.0
+        print(f"類別 {cls}: 出現次數 = {count}, 總損失 = {total_loss:.4f}, 平均損失 = {avg_loss:.4f}")
 
 
     # 排序並篩選最小損失的結果
@@ -423,3 +471,4 @@ if __name__ == "__main__":
             image_path = os.path.join(output_dir, f"result_image_{idx + 1}.jpg")
             cv2.imwrite(image_path, image)
             print(f"Saved Result {idx + 1}: Loss = {loss:.4f}, Params saved to {params_path}, Image saved to {image_path}")
+

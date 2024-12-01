@@ -12,6 +12,7 @@ import numpy as np
 from yolov3.models.common import DetectMultiBackend
 from yolov3.utils.general import non_max_suppression
 from yolov3.utils.torch_utils import select_device
+from tqdm import tqdm
 
 # 確保 yolov3 的路徑在搜索路徑中
 yolo3_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'yolov3'))
@@ -61,9 +62,9 @@ def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None):
 
 # 配置參數
 weights = 'best.pt'  # 訓練後的權重檔案
-video_path = 'video.mp4'  # 輸入影片路徑
-output_path = 'output_video.mp4'  # 輸出影片路徑
-device = torch.device('cpu')  # 使用 CPU（可以改為 GPU，例如 'cuda:0'）
+video_path = '1.mp4'  # 輸入影片路徑
+output_path = 'output_video_1.mp4'  # 輸出影片路徑
+device = torch.device('cuda')  # 使用 CPU（可以改為 GPU，例如 'cuda:0'）
 conf_threshold = 0.25
 iou_threshold = 0.45
 img_size = 416
@@ -90,6 +91,12 @@ fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # MPEG-4
 out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
 print("正在處理影片，請稍候...")
+# 獲取影片的總幀數
+total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+# 初始化進度條
+progress_bar = tqdm(total=total_frames, desc="處理進度", unit="frame")
+
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
@@ -111,12 +118,29 @@ while cap.isOpened():
         if len(det):
             det[:, :4] = scale_coords(img.shape[2:], det[:, :4], frame.shape).round()
             for *xyxy, conf, cls in det:
+                # 根據類別設定框的顏色和粗細
+                if cls == 0:  # 類別 0（person），紅色框
+                    color = (0, 0, 255)  # BGR 紅色
+                elif cls == 2:  # 類別 2（sign），藍色框
+                    color = (255, 0, 0)  # BGR 藍色
+                else:  # 其他類別，使用綠色框
+                    color = (0, 255, 0)  # BGR 綠色
+
+                thickness = 3  # 加粗框
+                fontScale = 2.0  # 大字體
+                fontThickness = 2  # 字體加粗
+
                 label = f"{names[int(cls)]} {conf:.2f}"
-                cv2.rectangle(frame, (int(xyxy[0]), int(xyxy[1])), (int(xyxy[2]), int(xyxy[3])), (0, 255, 0), 2)
-                cv2.putText(frame, label, (int(xyxy[0]), int(xyxy[1] - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                # 繪製框
+                cv2.rectangle(frame, (int(xyxy[0]), int(xyxy[1])), (int(xyxy[2]), int(xyxy[3])), color, thickness)
+                # 繪製標籤文字
+                cv2.putText(frame, label, (int(xyxy[0]), int(xyxy[1] - 10)), cv2.FONT_HERSHEY_SIMPLEX, fontScale, color, fontThickness)
 
     # 寫入輸出影片
     out.write(frame)
+
+    # 更新進度條
+    progress_bar.update(1)
 
 # 釋放資源
 cap.release()

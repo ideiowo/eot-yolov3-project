@@ -57,11 +57,11 @@ def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None):
 
 # 配置參數
 weights = 'best.pt'
-device = torch.device('cpu')  # 使用 CPU
-conf_threshold = 0.25
+device = torch.device('cpu') 
+conf_threshold = 0.3
 iou_threshold = 0.45
 img_size = 416
-source = 1
+source = 2
 
 # 加載模型
 model = DetectMultiBackend(weights, device=device, data=None)
@@ -97,9 +97,21 @@ while True:
         if len(det):
             det[:, :4] = scale_coords(img.shape[2:], det[:, :4], frame.shape).round()
             for *xyxy, conf, cls in det:
+                # 根據類別設定框的顏色和粗細
+                if cls == 0:  # 類別 0（person），紅色框
+                    color = (0, 0, 255)  # BGR 紅色
+                elif cls == 2:  # 類別 2（sign），藍色框
+                    color = (255, 0, 0)  # BGR 藍色
+                else:  # 其他類別，使用綠色框
+                    color = (0, 255, 0)  # BGR 綠色
+
+                thickness = 3  # 加粗框
+                fontScale = 2.0  # 大字體
+                fontThickness = 2  # 字體加粗
+
                 label = f"{names[int(cls)]} {conf:.2f}"
-                cv2.rectangle(frame, (int(xyxy[0]), int(xyxy[1])), (int(xyxy[2]), int(xyxy[3])), (0, 255, 0), 2)
-                cv2.putText(frame, label, (int(xyxy[0]), int(xyxy[1] - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                cv2.rectangle(frame, (int(xyxy[0]), int(xyxy[1])), (int(xyxy[2]), int(xyxy[3])), color, thickness)
+                cv2.putText(frame, label, (int(xyxy[0]), int(xyxy[1] - 10)), cv2.FONT_HERSHEY_SIMPLEX, fontScale, color, fontThickness)
 
     # 顯示結果
     cv2.imshow("YOLOv3 Detection", frame)
@@ -110,3 +122,4 @@ while True:
 
 cap.release()
 cv2.destroyAllWindows()
+

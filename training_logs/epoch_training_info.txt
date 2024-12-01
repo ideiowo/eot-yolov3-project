@@ -1,6 +1,0 @@
-Epoch 1/1000 - Loss_D: 0.5650, Loss_G: 1.7851, Attack_Loss: 2.9164
-Epoch 2/1000 - Loss_D: 0.5654, Loss_G: 1.7856, Attack_Loss: 2.9208
-Epoch 3/1000 - Loss_D: 0.5674, Loss_G: 1.7743, Attack_Loss: 2.8307
-Epoch 4/1000 - Loss_D: 0.5656, Loss_G: 1.3266, Attack_Loss: 1.9950
-Epoch 5/1000 - Loss_D: 0.5654, Loss_G: 1.3896, Attack_Loss: 2.1272
-Epoch 6/1000 - Loss_D: 0.5654, Loss_G: 1.4111, Attack_Loss: 2.1709
